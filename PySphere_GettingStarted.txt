@@ -1,0 +1,451 @@
+= Quick guide to start using PySphere = 
+
+== Installation ==
+
+PySphere is platform independent and works with python 2.5, 2.6, and 2.7.
+
+The simplest way to install it is using  [http://pypi.python.org/pypi/setuptools setuptools]' easy_install:
+
+`easy_install pysphere`
+
+You can also find the source package and windows installer in the [http://code.google.com/p/pysphere/downloads/list downloads section].
+
+To install it from the windows executable just run the file and follow the wizard's instructions.
+ 
+To install it from the source package:
+
+  # unzip pysphere-0.1.0.zip
+  # python setup.py install
+
+== Connecting to a server ==
+
+PySphere can interact with ESX, ESXi, Virtual Center, Virtual Server, and it should work with any other VMWare product exposing the vSphere Web Services SDK.
+
+First you need to create a server instance from the `VIServer` class:
+{{{
+>>> from pysphere import VIServer
+>>> server = VIServer()
+}}}
+
+Next, you must call the connect method and provide the server hostname or IP and the user credentials. E.g. For an ESX server on 192.168.100.100 with a registered user 'jdoe' with password 'secret':
+{{{
+>>> server.connect("192.168.100.100", "jdoe", "secret")
+}}}
+
+By default, pysphere will look for the web service at VMWare's default URL which is `https://[SERVER]/sdk`.
+If your server is configured to use http instead of https or if it's serving on a different port, then you need to provide the connect method with the full URL instead of just the hostname or IP. For example:
+{{{
+>>> server.connect("http://192.168.100.100:8080/sdk", "jdoe", "secret")
+}}}
+
+For debugging you can also provide the keyword argument `trace_file` with a path to a file where the SOAP requests and responses generated during you session will be stored:
+{{{
+>>> server.connect("192.168.100.100", "jdoe", "secret", trace_file="debug.txt")
+}}}
+== Server properties and methods ==
+
+If you want to start working with VMs right away you may skip this section.
+
+Once you created your VIServer instance and got connected you are able to retrieve info from the server.
+
+=== Getting the server type and vSphere API version ===
+
+To get Server Type
+{{{
+>>> print server.get_server_type() 
+VMware vCenter Server
+}}}
+To get API Version
+{{{
+>>> print server.get_api_version() 
+4.1
+}}}
+
+
+=== Getting the server's registered VMs ===
+
+This method will return a list of strings with all the VM's .vmx file paths that are registered in the server. You can use them later to connect to those vms.
+
+{{{
+>>> vmlist = server.get_registered_vms()
+}}}
+
+You may also use one or more filters through keyword arguments:
+
+  * datacenter: Name of the datacenter to get vms from.
+  * cluster: Name of the cluster to get vms from.
+  * resource_pool: Name of the resource pool to get vms from.
+  * status: one of 'poweredOn', 'poweredOff', 'suspended'. To get only VM with that power state.
+
+Note: if  cluster is set then datacenter is ignored and if resource pool is set both, datacenter and cluster, are ignored.
+
+For example, to get all powered on VMs from the 'Windows XP' resource pool:
+
+{{{
+>>> vmlist = server.get_registered_vms(resource_pool='Windows XP', status='poweredOn')
+}}}
+
+=== Disconnecting from the server ===
+
+Once you've finalized your program or script it's recommended to logout from the server, that will release all the objects at the server side that were created during your session. If not, the server will eventually drop your session after a period of inactivity.
+
+To disconnect from the server, just execute:
+
+{{{
+>>> server.disconnect()
+}}}
+
+
+== Working with virtual machines ==
+
+Once you have created your VIServer instance and invoked the connect method (see [GettingStarted#Connecting_to_a_server Connecting to a server]) you are ready to retrieve VM instances and operate with them.
+
+The are two main methods you can use to get a VM instance:
+  # *get_vm_by_path*: retrieve a virtual machine by its virtual machine configuration file path. To get this value via the VMWare VI Client:
+    # Right click on the vm icon from the resources tree and select "Edit settings..."
+    # Go to the "Options" tab.
+    # The value is on the "Virtual Machine Configuration File" field
+  # *get_vm_by_name*: retrieve a virtual machine by its assigned name.
+
+It's recommended that you use the first method. It is faster and you won't have two VMs with the same path whereas you might have more than one VM with the same name assigned in which case get_vm_by_name will return the first one to be found.
+
+Example:
+
+{{{
+>>> from pysphere import VIServer
+>>> server = VIServer()
+>>> server.connect("192.168.100.100", "jdoe", "secret")
+
+>>> vm1 = server.get_vm_by_path("[DataStore1] Ubuntu/Ubuntu-10.vmx")
+>>> vm2 = server.get_vm_by_name("My Open BSD 4.5")
+}}}
+
+both methods can receive an additional "datacenter" keyword argument that will limit the search within the specified datacenter:
+
+{{{
+>>> vm1 = server.get_vm_by_path("[DataStore1] Ubuntu/Ubuntu-10.vmx", "DEVELOPMENT")
+>>> vm2 = server.get_vm_by_name("My Open BSD 4.5", "IT")
+}}}
+
+=== Getting VM properties ===
+
+====*Virtual Machine Status:*====
+
+The following code
+{{{
+>>> print vm1.get_status()
+}}}
+
+will print one of these values (strings):
+  * 'POWERED ON'
+  * 'POWERED OFF'
+  * 'SUSPENDED'
+  * 'POWERING ON'
+  * 'POWERING OFF'
+  * 'SUSPENDING'
+  * 'RESETTING'
+  * 'BLOCKED ON MSG'
+  * 'REVERTING TO SNAPSHOT'
+
+The first three states are the basic ones. i.e. a virtual machine will always be in one of those three statuses, however by inspecting the list of queued tasks the other statuses can be implied. E.g. if a VM is powered off but a user has started a power on action, then the implied status will be 'POWERING ON'. The status 'BLOCKED ON MSG' means that VM can't be used until the user decides an action to be taken on that VM (one of the most common message triggered is "This virtual machine may have been moved or copied")
+
+Some products as "VMware Server/ESX/ESXi" do not support querying the tasks history so you'll always get one of the first three statuses.
+Besides, you can force pysphere to return one of the three basic statuses by providing the extra keyword argument "basic_status" with 'True':
+
+{{{
+>>> print vm1.get_status(basic_status=True)
+}}}
+
+You might also ask if the VM is in a particular status (which will return True or False) by invoking these methods:
+{{{
+>>> print vm1.is_powering_off()
+>>> print vm1.is_powered_off()
+>>> print vm1.is_powering_on()
+>>> print vm1.is_powered_on()
+>>> print vm1.is_suspending()
+>>> print vm1.is_suspended()
+>>> print vm1.is_resetting()
+>>> print vm1.is_blocked_on_msg()
+>>> print vm1.is_reverting()
+}}}
+
+====*Getting basic properties:*====
+
+Pysphere provides two methods to get some basic properties from a VM in a simple way. If you are looking to retrieve any other property that is not being listed here see the [AdvancedUsage Advanced Usage] section.
+
+  * *get_properties*: retrieves a python dictionary with all the properties available at the time (Not all the vms will have all the properties, as some properties depend on the specific configuration, vmware tools, or the machine power status).
+  * *get_property(property_name)*: retrieves the value of the requested property, or None if that property does not exist. E.g:
+
+{{{
+>>> vm1.get_properties()
+{'guest_id': 'ubuntuGuest',
+ 'path': '[DataStore1] Ubuntu/Ubuntu-10.vmx',
+ 'guest_full_name': 'Ubuntu Linux (32-bit)',
+ 'name': 'Ubuntu 10.10 Desktop 2200',
+ 'mac_address': '00:50:56:aa:01:a7'
+}
+}}}
+
+{{{
+>>> print vm1.get_property('mac_address') 
+'00:50:56:aa:01:a7'
+}}}
+
+Due to performance reasons, when pysphere creates the VM instance, all the properties are queried in a single request and cached. But some of them are volatile, their values might change, new properties can appear or an existing property might disappear. For example, to get the `ip_address` property the VM needs to have the VMWare tools installed and to be powered on. To be sure the value you request is updated you might add the 'from_cache' keyword argument to `get_property` or `get_properties` with the value `False`. This will refresh the cache of all the properties, not only the requested. 
+
+{{{
+>>> print vm1.get_property('ip_address', from_cache=False)
+>>> print vm1.get_properties(from_cache=False)
+}}}
+
+This is the list of all the properties you can request:
+  * name
+  * path
+  * guest_id
+  * guest_full_name
+  * hostname
+  * ip_address
+  * mac_address
+  * net
+
+====*Getting the resource pool name:*====
+To get the name of the immediate resource pool the VM belongs to, execute:
+
+{{{
+>>> print vm1.get_resource_pool_name() 
+Linux VMs
+}}}
+
+===*Powering ON/OFF, Reset:*===
+
+To power on, reset, or power off a virtual machine you should call one of this methods:
+
+{{{
+>>> vm1.power_on()
+>>> vm1.reset()
+>>> vm1.power_off()
+}}}
+
+By default all of them are executed synchronously, i.e, the method won't return until the operation requested has completed.
+
+If you want to execute those operations asynchronously, you must provide the keyword argument `sync_run=False`. In that case the method will return a task object which you can use to query the task progress and result. The methods and attributes of this task object will be explained later (see [GettingStarted#Running_Tasks_Asynchronously Running Tasks Asynchronously]).
+
+{{{
+>>> task1 = vm1.power_on(sync_run=False)
+>>> task2 = vm2.reset(sync_run=False)
+>>> task3 = vm3.power_off(sync_run=False)
+}}}
+
+Additionally, the power_on method supports an additional 'host' keyword argument you can supply to indicate in which host the VM should be powered on (e.g. If you are working with a Virtual Center with several ESX severs registered). If this argument is either invalid or not provided the current host association is used. 
+
+{{{
+>>> vm1.power_on(host="esx3.example.com")
+}}}
+
+===*Guest operations: Shutdown, Reboot, and Stand By:*===
+
+Each of this three methods issues a command to the guest operating system asking it to prepare for a shutdown, reboot or suspend operation. Returns immediately and does not wait for the guest operating system to complete the operation (Requires the VM to be powered on and have the VMWare tools running)
+
+{{{
+>>> vm1.shutdown_guest()
+>>> vm1.reboot_guest()
+>>> vm1.standby_guest()
+}}}
+
+===*Snapshots: Revert to, Create, and Delete:*===
+
+====*Revert to snapshot*====
+
+There are three methods you can use to revert a virtual machine to a snapshot:
+  * *revert_to_snapshot*: reverts to the current snapshot.
+  * *revert_to_named_snapshot*: reverts to the first snapshot matching the given name.
+  * *revert_to_path*: reverts to the snapshot matching the snapshots path and index (to disambiguate among snapshots with the same name). 
+
+For example:
+
+{{{
+>>> vm1.revert_to_snapshot() #reverts to the current snapshot
+>>> vm1.revert_to_named_snapshot("base") #reverts to the "base" snapshot
+>>> vm1.revert_to_path("/base/updated") #reverts to the "updated" snapshot which is a child of snapshot "base"
+}}}
+
+The "revert_to_path" method also accepts an "index" keyword argument which defaults to 0. If you have two or more snapshots with the exact same path you can use this argument to disambiguate among them. E.g.:
+
+{{{
+>>> vm1.revert_to_path("/base/updated", index=1) #reverts to the second "updated" snapshot withing the "base" snapshot node
+}}}
+
+As with the "power_on", "power_off", "reset" methods (see [GettingStarted#Powering_ON/OFF,_Reset: Powering ON/OFF, Reset]) the revert operations are executed synchronously, i.e, the method won't return until the operation requested has completed.
+
+If you want to execute those operations asynchronously, you must provide the keyword argument `sync_run=False`. In that case the method will return a task object which you can use to query the task progress and result. The methods and attributes of this task object will be explained later (see [GettingStarted#Running_Tasks_Asynchronously Running Tasks Asynchronously]).
+
+{{{
+>>> task1 = vm1.revert_to_snapshot(sync_run=False)
+>>> task2 = vm2.revert_to_named_snapshot("base", sync_run=False)
+>>> task3 = vm3.revert_to_path("/base/updated", sync_run=False)
+}}}
+
+Besides, as with the "power_on" method, there's an additional 'host' keyword argument you can supply to indicate in which host the VM should be reverted (e.g. If you are working with a Virtual Center with several ESX severs registered). If this argument is either invalid or not provided the current host association is used. 
+
+{{{
+>>> vm1.revert_to_snapshot(host="esx1.example.com")
+>>> vm1.revert_to_named_snapshot(host="esx2.example.com")
+>>> vm1.revert_to_path(host="esx3.example.com")
+}}}
+
+====*Delete snapshots*====
+
+As with `revert_to_*` methods, there are also three analogical methods to remove an snapshot: the current snapshot, by name, and by path:
+
+  * *delete_current_snapshot*
+  * *delete_named_snapshot(name)*
+  * *delete_snapshot_by_path(path, index=0)*
+
+E.g.:
+
+{{{
+>>> vm1.delete_current_snapshot()
+>>> vm1.delete_named_snapshot("base")
+>>> vm1.delete_snapshot_by_path("/base2/foo")
+}}}
+
+In the case of *delete_snapshot_by_path* you can provide the "index" keyword argument to disambiguate among snapshots with the same path (defaults to 0).
+
+The three methods have a "remove_children" keyword argument that defaults to False, setting it to True will delete not only the snapshot specified but also all its descendants.
+
+E.g.:
+
+{{{
+>>> vm1.delete_current_snapshot(remove_children=True)
+>>> vm1.delete_named_snapshot("base", remove_children=True)
+>>> vm1.delete_snapshot_by_path("/base2/foo", remove_children=True)
+}}}
+
+The delete operation is also executed synchronously, just add the `run_sync=False` keyword argument to execute it asynchronously and get the task object (see [GettingStarted#Running_Tasks_Asynchronously Running Tasks Asynchronously]). E.g.:
+
+{{{
+>>> task1 = vm1.delete_current_snapshot(sync_run=False)
+>>> task2 = vm1.delete_named_snapshot("base", sync_run=False)
+>>> task3 = vm1.delete_snapshot_by_path("/base2/foo", sync_run=False)
+}}}
+
+====*Create snapshot*====
+
+To take a snapshot with the current state of the VM, run:
+
+{{{
+>>> vm1.create_snapshot("mysnapshot")
+}}}
+
+You can also provide a snapshot description via the "description" keyword argument:
+
+{{{
+>>> vm1.create_snapshot("mysnapshot", description="With SP2 installed")
+}}}
+
+The create operation is also execute synchronously, so you won't get the control back until the snapshot has been created, to execute it asynchronously and get the task object just add the `run_sync=False` keyword argument (see [GettingStarted#Running_Tasks_Asynchronously Running Tasks Asynchronously]). E.g.:
+
+{{{
+>>> task1 = vm1.create_snapshot("mysnapshot", sync_run=False)
+}}}
+
+====*List snapshots*====
+
+By calling the following method:
+
+{{{
+>>> snapshot_list = vm1.get_snapshots()
+}}}
+
+You'll get a list of `VISnapthot` objects, each of which support the following methods:
+
+  * *get_name*: Returns the snapshot's name
+  * *get_description*: Returns the snapshot's description text, if any.
+  * *get_create_time*: Returns a time tuple with the snapshot creation time.
+  * *get_parent*: Returns a VISnapshot object representing this snapshot's parent. Or None if this is a root snapshot.
+  * *get_children*: Returns a list of VISnapshot objects representing direct child snapshots.
+  * *get_path*: Returns the full path of ancestors names (separated by '/') E.g.: `"/base/base1/base2"`
+  * *get_state*: Returns the status in which the VM was when the snapshot was taken: 'poweredOff', 'poweredOn', or 'suspended'
+
+For example, having a 'base_old' snapshot with a 'base' child snapshot:
+
+{{{
+>>> print snapshot_list
+[<pysphere.vi_snapshot.VISnapshot instance at 0x05244738>, 
+ <pysphere.vi_snapshot.VISnapshot instance at 0x052448A0>]
+}}}
+
+{{{
+>>> for snapshot in snapshot_list:
+...    print "Name:", snapshot.get_name()
+...    print "Description", snapshot.get_description()
+...    print "Created:", snapshot.get_create_time()
+...    print "State:", snapshot.get_state()
+...    print "Path:", snapshot.get_path()
+...    print "Parent:", snapshot.get_parent()
+...    print "Children:", snapshot.get_children()
+...
+}}}
+
+Might print out:
+{{{
+"""
+Name: base_old
+Description:
+Created: (2008, 7, 30, 18, 0, 17, 54, 0, 0)
+State: poweredOn
+Path: /base_old
+Parent: None
+Children: [<pysphere.vi_snapshot.VISnapshot instance at 0x052448A0>]
+Name: base
+Description: With Service Pack 2
+Created: (2011, 9, 28, 11, 9, 36, 165, 0, 0)
+State: poweredOn
+Path: /base_old/base
+Parent: <pysphere.vi_snapshot.VISnapshot instance at 0x05244738>
+Children: []
+"""
+}}}
+
+===*Running Tasks Asynchronously*===
+
+As mentioned before, there are many methods of a virtual machine that execute synchronously by default (i.e. you don't get the flow control back until the operation has completed) but support asynchronous execution by providing the keyword argument `sync_run=False`.
+
+This is a list of the virtual machine methods which support this argument:
+  * power_on
+  * reset
+  * power_off
+  * revert_to_snapshot
+  * revert_to_named_snapshot
+  * revert_to_path
+  * delete_current_snapshot
+  * delete_named_snapshot
+  * delete_snapshot_by_path
+  * create_snapshot
+
+When invoking the method with `sync_run=False`, a `VITask` object will be returned. For example:
+
+{{{
+>>> task = vm1.power_on(sync_run=False)
+}}}
+
+this `VITask` object have the following methods:
+  * *get_state*: Return the current status of the task. Possible values are:
+   * `"error"`: The task finished but not successfully.
+   * `"queued"`: The task is still queued and waiting to be executed.
+   * `"running"`: The task is being run.
+   * `"success"`: The task finished and was successfully executed.
+  * *get_error_message*: If the task status is 'error', returns the error description message.
+  * *wait_for_state*: receives a list of statuses and waits at most the indicated time (or indefinitely if a timeout is not provided) until one of the given statuses are reached. Returns the reached status or raises a VIException if times out.
+Example:
+{{{
+>>> task = vm1.power_on(sync_run=False)
+>>> try:
+...     status = task.wait_for_state(['running', 'error'], timeout=10)
+...     if status == 'error':
+...         print "Error powering on:", task.get_error_message()
+...     else:
+...         print "Succesfully powered on"
+... except:
+...     print "10 seconds time out reached waiting for power on to finish"
+}}}
