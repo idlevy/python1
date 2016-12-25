@@ -10,7 +10,7 @@ def connect_to_server(ip,user,pw):
 
 from pysphere import VIServer
 server=VIServer()
-server.connect("10.45.86.152","root","Cmv5@rootVM%")
+server.connect(XXXXXXXX","root","********")
 vms=server.get_registered_vms()
 vms
 
