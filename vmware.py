@@ -7,7 +7,7 @@ from pysphere import VIServer
 
 ip="10.45.86.152"
 user="root"
-pw="Cmv5@rootVM%"
+pw=""
 System_name="T001"
 attempt ="NO"
 
